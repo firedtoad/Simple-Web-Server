@@ -11,6 +11,9 @@
 #include <boost/filesystem.hpp>
 #include <vector>
 #include <algorithm>
+#ifdef HAVE_OPENSSL
+#include "crypto.hpp"
+#endif
 
 using namespace std;
 //Added for the json-example:
@@ -27,7 +30,8 @@ int main() {
     //HTTP-server at port 8080 using 1 thread
     //Unless you do more heavy non-threaded processing in the resources,
     //1 thread is usually faster than several threads
-    HttpServer server(8080, 1);
+    HttpServer server;
+    server.config.port=8080;
     
     //Add resources using path-regex and method-string, and an anonymous function
     //POST-example for the path /string, responds the posted string
@@ -116,17 +120,40 @@ int main() {
                 path/="index.html";
             if(!(boost::filesystem::exists(path) && boost::filesystem::is_regular_file(path)))
                 throw invalid_argument("file does not exist");
-            
+
+            std::string cache_control, etag;
+
+            // Uncomment the following line to enable Cache-Control
+            // cache_control="Cache-Control: max-age=86400\r\n";
+
+#ifdef HAVE_OPENSSL
+            // Uncomment the following lines to enable ETag
+            // {
+            //     ifstream ifs(path.string(), ifstream::in | ios::binary);
+            //     if(ifs) {
+            //         auto hash=SimpleWeb::Crypto::to_hex_string(SimpleWeb::Crypto::md5(ifs));
+            //         etag = "ETag: \""+hash+"\"\r\n";
+            //         auto it=request->header.find("If-None-Match");
+            //         if(it!=request->header.end()) {
+            //             if(!it->second.empty() && it->second.compare(1, hash.size(), hash)==0) {
+            //                 *response << "HTTP/1.1 304 Not Modified\r\n" << cache_control << etag << "\r\n\r\n";
+            //                 return;
+            //             }
+            //         }
+            //     }
+            //     else
+            //         throw invalid_argument("could not read file");
+            // }
+#endif
+
             auto ifs=make_shared<ifstream>();
-            ifs->open(path.string(), ifstream::in | ios::binary);
+            ifs->open(path.string(), ifstream::in | ios::binary | ios::ate);
             
             if(*ifs) {
-                ifs->seekg(0, ios::end);
                 auto length=ifs->tellg();
-                
                 ifs->seekg(0, ios::beg);
                 
-                *response << "HTTP/1.1 200 OK\r\nContent-Length: " << length << "\r\n\r\n";
+                *response << "HTTP/1.1 200 OK\r\n" << cache_control << etag << "Content-Length: " << length << "\r\n\r\n";
                 default_resource_send(server, response, ifs);
             }
             else
@@ -157,7 +184,7 @@ int main() {
     
     auto r3=client.request("POST", "/json", json_string);
     cout << r3->content.rdbuf() << endl;
-        
+    
     server_thread.join();
     
     return 0;
